@@ -3,10 +3,13 @@
 # Date: September 2016
 # Project: Document Summarization
 # H2020 Summa Project
+
+# v1.2 XNET
+#   author: Ronald Cardenas
 ####################################
 
 """
-Document Summarization Model Utilities
+Document Summarization/Question Answering Modules and Models
 """
 
 from __future__ import absolute_import
@@ -35,6 +38,8 @@ linear = rnn_cell._linear  # pylint: disable=protected-access
 
 # from tf.nn import variable_scope
 from my_flags import FLAGS
+
+seed = 42
 
 ### Get Variable
 
@@ -143,13 +148,13 @@ def conv1d_layer_sentence_representation(sent_wordembeddings):
       print("Error: Make sure (output_channel *  FLAGS.max_filter_length) is equal to FLAGS.sentembed_size.")
       exit(0)
 
-  for filterwidth in xrange(FLAGS.min_filter_length,FLAGS.max_filter_length+1):
+  for filterwidth in range(FLAGS.min_filter_length,FLAGS.max_filter_length+1):
     # print(filterwidth)
 
     with tf.variable_scope("Conv1D_%d"%filterwidth) as scope:
 
       # Convolution
-      conv_filter = variable_on_cpu("conv_filter_%d" % filterwidth, [filterwidth, FLAGS.wordembed_size, output_channel], tf.truncated_normal_initializer())
+      conv_filter = variable_on_cpu("conv_filter_%d" % filterwidth, [filterwidth, FLAGS.wordembed_size, output_channel], tf.truncated_normal_initializer(seed=seed))
       # print(conv_filter.name, conv_filter.get_shape())
       conv = tf.nn.conv1d(sent_wordembeddings, conv_filter, 1, padding='VALID') # [None, out_width=(max_sent_length-(filterwidth-1)), output_channel]
       conv_biases = variable_on_cpu("conv_biases_%d" % filterwidth, [output_channel], tf.constant_initializer(0.0))
@@ -245,7 +250,7 @@ def simple_attentional_rnn(rnn_input, attention_state_list, initial_state=None):
   return rnn_outputs, rnn_state
 
 
-def attentional_isf_rnn(rnn_input, attention_state_list, isf_scores, initial_state=None):
+def attentional_isf_rnn(rnn_input, attention_state_list, isf_scores, idf_scores, locisf_scores, initial_state=None):
   """Implements Simple RNN
   Args:
   rnn_input: List of tensors of sizes [-1, sentembed_size]
@@ -261,17 +266,18 @@ def attentional_isf_rnn(rnn_input, attention_state_list, isf_scores, initial_sta
   cell = get_lstm_cell()
 
   # Apply dropout
-  in_prob = FLAGS.dropout if FLAGS.use_dropout else 1.0
-  out_prob = FLAGS.dropout if FLAGS.use_dropout_outatt else 1.0  
+  in_prob = FLAGS.dropout if FLAGS.use_dropout and FLAGS.phase_train else 1.0
+  out_prob = FLAGS.dropout if FLAGS.use_dropout_outatt and FLAGS.phase_train else 1.0  
   cell = tf.nn.rnn_cell.DropoutWrapper(cell,input_keep_prob=in_prob,output_keep_prob=out_prob)
   
   # Setup attentional RNNs
   dtype = tf.float16 if FLAGS.use_fp16 else tf.float32
-  rnn_outputs, rnn_state = attention_isf_decoder(rnn_input, initial_state, attention_states, isf_scores, cell,
-                                                     output_size=None, num_heads=1, loop_function=None, dtype=dtype,
-                                                     scope=None, initial_state_attention=False)
+  rnn_outputs, rnn_state = attention_isf_decoder(rnn_input, initial_state, attention_states, isf_scores, idf_scores, locisf_scores,
+                                                     cell, output_size=None, num_heads=1, loop_function=None,
+                                                     dtype=dtype, scope=None, initial_state_attention=False)
   
   return rnn_outputs, rnn_state
+
 
 
 
@@ -349,6 +355,19 @@ def convert_logits_to_softmax(batch_logits, session=None,trans_np=True):
   batch_logits: [batch_size, FLAGS.max_doc_length, FLAGS.target_label_size]
   """
   # Convert logits [batch_size, FLAGS.max_doc_length, FLAGS.target_label_size] to probabilities
+  batch_logits = tf.reshape(batch_logits, [-1, FLAGS.target_label_size])
+  batch_softmax_logits = tf.nn.softmax(batch_logits)
+  batch_softmax_logits = tf.reshape(batch_softmax_logits, [-1, FLAGS.max_doc_length, FLAGS.target_label_size])
+  # Convert back to numpy array
+  if trans_np:
+    batch_softmax_logits = batch_softmax_logits.eval(session=session)
+  return batch_softmax_logits
+
+def convert_logits_to_softmax_paircnn(batch_logits, session=None,trans_np=True):
+  """ Convert logits to probabilities
+  batch_logits: [batch_size, FLAGS.max_doc_length, FLAGS.target_label_size]
+  """
+  # Convert logits [batch_size, FLAGS.max_doc_length, FLAGS.target_label_size] to probabilities
   #batch_logits = tf.reshape(batch_logits, [-1, FLAGS.target_label_size])
   batch_softmax_logits = tf.nn.softmax(batch_logits)
   #batch_softmax_logits = tf.reshape(batch_softmax_logits, [-1, FLAGS.max_doc_length, FLAGS.target_label_size])
@@ -360,5 +379,214 @@ def convert_logits_to_softmax(batch_logits, session=None,trans_np=True):
 
 
 
+def predict_toprankedthree(batch_softmax_logits, batch_weights):
+  """ Convert logits to probabilities
+  batch_softmax_logits: Numpy Array [batch_size, FLAGS.max_doc_length, FLAGS.target_label_size]
+  batch_weights: Numpy Array [batch_size, FLAGS.max_doc_length]
+  Return:
+  batch_predicted_labels: [batch_size, FLAGS.max_doc_length, FLAGS.target_label_size]
+  """
+
+  batch_size = batch_softmax_logits.shape[0]
+
+  # Numpy dtype
+  dtype = np.float16 if FLAGS.use_fp16 else np.float32
+
+  batch_predicted_labels = np.empty((batch_size, FLAGS.max_doc_length, FLAGS.target_label_size), dtype=dtype)
+
+  for batch_idx in range(batch_size):
+    softmax_logits = batch_softmax_logits[batch_idx]
+    weights = batch_weights[batch_idx]
+
+    # Find top three scoring sentence to consider for summary, if score is same, select sentences with low indices
+    oneprob_sentidx = {}
+    for sentidx in range(FLAGS.max_doc_length):
+      prob = softmax_logits[sentidx][0] # probability of predicting one
+      weight = weights[sentidx]
+      if weight == 1:
+        if prob not in oneprob_sentidx:
+          oneprob_sentidx[prob] = [sentidx]
+        else:
+          oneprob_sentidx[prob].append(sentidx)
+      else:
+        break
+    oneprob_keys = oneprob_sentidx.keys()
+    oneprob_keys.sort(reverse=True)
+
+    # Rank sentences with scores: if same score lower ones ranked first
+    sentindices = []
+    for oneprob in oneprob_keys:
+      sent_withsamescore = oneprob_sentidx[oneprob]
+      sent_withsamescore.sort()
+      sentindices += sent_withsamescore
+
+    # Select Top 3
+    final_sentences = sentindices[:3]
+
+    # Final Labels
+    labels_vecs = [[1, 0] if (sentidx in final_sentences) else [0, 1] for sentidx in range(FLAGS.max_doc_length)]
+    batch_predicted_labels[batch_idx] = np.array(labels_vecs[:], dtype=dtype)
+
+  return batch_predicted_labels
+
+def sample_three_forsummary(batch_softmax_logits):
+  """ Sample three ones to select in the summary
+  batch_softmax_logits: Numpy Array [batch_size, FLAGS.max_doc_length, FLAGS.target_label_size]
+  Return:
+  batch_predicted_labels: [batch_size, FLAGS.max_doc_length, FLAGS.target_label_size]
+  """
+
+  batch_size = batch_softmax_logits.shape[0]
+
+  # Numpy dtype
+  dtype = np.float16 if FLAGS.use_fp16 else np.float32
+
+  batch_sampled_labels = np.empty((batch_size, FLAGS.max_doc_length, FLAGS.target_label_size), dtype=dtype)
+
+  for batch_idx in range(batch_size):
+    softmax_logits = batch_softmax_logits[batch_idx] # [FLAGS.max_doc_length, FLAGS.target_label_size]
+
+    # Collect probabilities for predicting one for a sentence
+    sentence_ids = range(FLAGS.max_doc_length)
+    sentence_oneprobs = [softmax_logits[sentidx][0] for sentidx in sentence_ids]
+    normalized_sentence_oneprobs =  [item/sum(sentence_oneprobs) for item in sentence_oneprobs]
+
+    # Sample three sentences to select for summary from this distribution
+    final_sentences = np.random.choice(sentence_ids, p=normalized_sentence_oneprobs, size=3, replace=False)
+
+    # Final Labels
+    labels_vecs = [[1, 0] if (sentidx in final_sentences) else [0, 1] for sentidx in range(FLAGS.max_doc_length)]
+    batch_sampled_labels[batch_idx] = np.array(labels_vecs[:], dtype=dtype)
+
+  return batch_sampled_labels
+
+
+
 ###############################################################################
 ## miscelaneus
+
+
+def attention_isf_decoder(decoder_inputs,
+                      initial_state,
+                      attention_states,
+                      isf_scores,
+                      idf_scores,
+                      locisf_scores,
+                      cell,
+                      output_size=None,
+                      num_heads=1,
+                      loop_function=None,
+                      dtype=None,
+                      scope=None,
+                      initial_state_attention=False):
+  """
+  isf_scores: np array with ISF scores (not a tensor) (normalized or not)
+  """
+
+  if not decoder_inputs:
+    raise ValueError("Must provide at least 1 input to attention decoder.")
+  if num_heads < 1:
+    raise ValueError("With less than 1 heads, use a non-attention decoder.")
+  if not attention_states.get_shape()[1:2].is_fully_defined():
+    raise ValueError("Shape[1] and [2] of attention_states must be known: %s"
+                     % attention_states.get_shape())
+  if output_size is None:
+    output_size = cell.output_size
+
+  with variable_scope.variable_scope(scope or "attention_ifsscore_decoder"):
+
+    batch_size = array_ops.shape(decoder_inputs[0])[0]  # Needed for reshaping.
+    attn_length = attention_states.get_shape()[1].value
+    if attn_length is None:
+      attn_length = shape(attention_states)[1]
+    attn_size = attention_states.get_shape()[2].value
+
+    # To calculate W1 * h_t we use a 1-by-1 convolution, need to reshape before.
+    hidden = array_ops.reshape(
+        attention_states, [-1, attn_length, 1, attn_size])
+    hidden_features = []
+    v = []
+    attention_vec_size = attn_size  # Size of query vectors for attention.
+    for a in range(num_heads):
+      k = variable_scope.get_variable("AttnW_%d" % a,
+                                      [1, 1, attn_size, attention_vec_size])
+      hidden_features.append(nn_ops.conv2d(hidden, k, [1, 1, 1, 1], "SAME"))
+      v.append(
+          variable_scope.get_variable("AttnV_%d" % a, [attention_vec_size]))
+
+    state = initial_state
+
+    def attention(query):
+      """Put attention masks on hidden using hidden_features and query."""
+      ds = []  # Results of attention reads will be stored here.
+      if nest.is_sequence(query):  # If the query is a tuple, flatten it.
+        query_list = nest.flatten(query)
+        for q in query_list:  # Check that ndims == 2 if specified.
+          ndims = q.get_shape().ndims
+          if ndims:
+            assert ndims == 2
+        query = array_ops.concat(1, query_list)
+      for a in range(num_heads):
+        with variable_scope.variable_scope("Attention_%d" % a):
+          y = linear(query, attention_vec_size, True)
+          y = array_ops.reshape(y, [-1, 1, 1, attention_vec_size])
+          # Attention mask is a softmax of v^T * tanh(...).
+          s = math_ops.reduce_sum(
+              v[a] * math_ops.tanh(hidden_features[a] + y), [2, 3])
+          a = nn_ops.softmax(s)
+          # Now calculate the attention-weighted vector d.
+          d = math_ops.reduce_sum(
+              array_ops.reshape(a, [-1, attn_length, 1, 1]) * hidden,
+              [1, 2])
+          ds.append(array_ops.reshape(d, [-1, attn_size]))
+      return ds
+
+    outputs = []
+    prev = None
+    batch_attn_size = array_ops.pack([batch_size, attn_size])
+    attns = [array_ops.zeros(batch_attn_size, dtype=dtype)
+             for _ in range(num_heads)]
+    for a in attns:  # Ensure the second shape of attention vectors is set.
+      a.set_shape([None, attn_size])
+    if initial_state_attention:
+      attns = attention(initial_state)
+    for i, inp in enumerate(decoder_inputs):
+      if i > 0:
+        variable_scope.get_variable_scope().reuse_variables()
+      # If loop_function is set, we use it instead of decoder_inputs.
+      if loop_function is not None and prev is not None:
+        with variable_scope.variable_scope("loop_function", reuse=True):
+          inp = loop_function(prev, i)
+      # Merge input and previous attentions into one vector of the right size.
+      input_size = inp.get_shape().with_rank(2)[1]
+      if input_size.value is None:
+        raise ValueError("Could not infer input size from input: %s" % inp.name)
+      
+      #h_isf = tf.mul(isf_scores[i],inp)
+      #extra_feats = [h_isf]
+      extra_feats = []
+      if FLAGS.use_locisf:
+        extra_feats.append(locisf_scores[i])
+      if FLAGS.use_isf:
+        extra_feats.append(isf_scores[i])
+      if FLAGS.use_idf:
+        extra_feats.append(idf_scores[i])
+      
+      x = linear([inp] + attns + extra_feats, input_size, True)
+      # Run the RNN.
+      cell_output, state = cell(x, state)
+      # Run the attention mechanism.
+      if i == 0 and initial_state_attention:
+        with variable_scope.variable_scope(variable_scope.get_variable_scope(),
+                                           reuse=True):
+          attns = attention(state)
+      else:
+        attns = attention(state)
+
+      with variable_scope.variable_scope("AttnOutputProjection"):
+        output = linear([cell_output] + attns + extra_feats, output_size, True)
+      if loop_function is not None:
+        prev = output
+      outputs.append(output)
+
+  return outputs, state

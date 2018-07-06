@@ -64,7 +64,8 @@ class MY_Model:
     self.logits,\
     self.cos_sim,\
     self.sent_emb,\
-    self.question_emb = model_docsum.policy_network(self.vocab_embed_variable,
+    self.question_emb = model_docsum.policy_network_xnet_plus_qa(
+                                        self.vocab_embed_variable,
                                         self.document_placeholder,
                                         self.label_placeholder,
                                         self.isf_score_placeholder,

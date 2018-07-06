@@ -1,3 +1,6 @@
+import sys
+sys.path.append('../../common')
+
 import os
 import numpy as np
 import pdb

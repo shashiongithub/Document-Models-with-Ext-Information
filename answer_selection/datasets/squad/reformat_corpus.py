@@ -37,9 +37,9 @@ if __name__ == "__main__":
         mx_sent_len = 0
         data_gen = read_data(corpus_split)
         # outputs files
-        docs_out      = open(os.path.join(PREPROC_DATA_DIR,'squad',"%s.%s.doc"      % (corpus_split,anon_pref)), 'w')
-        questions_out = open(os.path.join(PREPROC_DATA_DIR,'squad',"%s.%s.question" % (corpus_split,anon_pref)), 'w')
-        labels_out    = open(os.path.join(PREPROC_DATA_DIR,'squad',"%s.%s.label"    % (corpus_split,anon_pref)), 'w')    
+        docs_out      = open(os.path.join(PREPROC_DATA_DIR,'squad',"%s.%s.org_ent.doc"      % (corpus_split,anon_pref)), 'w')
+        questions_out = open(os.path.join(PREPROC_DATA_DIR,'squad',"%s.%s.org_ent.question" % (corpus_split,anon_pref)), 'w')
+        labels_out    = open(os.path.join(PREPROC_DATA_DIR,'squad',"%s.%s.org_ent.label"    % (corpus_split,anon_pref)), 'w')    
         cnt_scores_out    = open(os.path.join(PREPROC_DATA_DIR,'squad',"%s.cnt.scores" % (corpus_split)), 'w')
         isf_scores_out    = open(os.path.join(PREPROC_DATA_DIR,'squad',"%s.isf.scores" % (corpus_split)), 'w')
         locisf_scores_out = open(os.path.join(PREPROC_DATA_DIR,'squad',"%s.locisf.scores" % (corpus_split)), 'w')

@@ -10,6 +10,9 @@
 """
 Document Summarization System
 """
+import sys
+sys.path.append('../../common')
+
 import tensorflow as tf
 from my_flags import FLAGS
 from train_test_utils import *

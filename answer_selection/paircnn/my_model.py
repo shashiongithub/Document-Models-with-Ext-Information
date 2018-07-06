@@ -16,6 +16,9 @@ Question Answering Modules and Models
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
+import sys
+sys.path.append('../../common')
+
 
 import math
 import os
@@ -51,17 +54,18 @@ class MY_Model:
     self.logits_placeholder = tf.placeholder(dtype, [None, FLAGS.target_label_size], name='logits-ph')
 
     ### Define Ablated Network: Consists only Convolution.
-    self.logits = model_docsum.policy_network(self.vocab_embed_variable,
+    self.logits = model_docsum.policy_network_paircnn_qa(
+                                              self.vocab_embed_variable,
                                               self.document_placeholder)
 
     ### Define Supervised Cross Entropy Loss
-    self.cross_entropy_loss = model_docsum.cross_entropy_loss(self.logits, self.label_placeholder)
-    self.cross_entropy_loss_val = model_docsum.cross_entropy_loss(self.logits_placeholder,self.label_placeholder)
+    self.cross_entropy_loss = model_docsum.cross_entropy_loss_paircnn_qa(self.logits, self.label_placeholder)
+    self.cross_entropy_loss_val = model_docsum.cross_entropy_loss_paircnn_qa(self.logits_placeholder,self.label_placeholder)
 
     ### Define training operators & gradients
     self.train_op_policynet_withgold, self.gradients = model_docsum.train_cross_entropy_loss(self.cross_entropy_loss)
 
-    self.predictions = model_utils.convert_logits_to_softmax(self.logits_placeholder,None,False)
+    self.predictions = model_utils.convert_logits_to_softmax_paircnn(self.logits_placeholder,None,False)
 
     # Create a saver.
     self.saver = tf.train.Saver(tf.all_variables(), max_to_keep=None)

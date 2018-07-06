@@ -1,0 +1,31 @@
+I tensorflow/stream_executor/dso_loader.cc:128] successfully opened CUDA library libcublas.so locally
+I tensorflow/stream_executor/dso_loader.cc:128] successfully opened CUDA library libcudnn.so locally
+I tensorflow/stream_executor/dso_loader.cc:128] successfully opened CUDA library libcufft.so locally
+I tensorflow/stream_executor/dso_loader.cc:128] successfully opened CUDA library libcuda.so.1 locally
+I tensorflow/stream_executor/dso_loader.cc:128] successfully opened CUDA library libcurand.so locally
+I tensorflow/stream_executor/cuda/cuda_gpu_executor.cc:937] successful NUMA node read from SysFS had negative value (-1), but there must be at least one NUMA node, so returning NUMA node zero
+I tensorflow/core/common_runtime/gpu/gpu_device.cc:885] Found device 0 with properties: 
+name: GeForce GTX 950M
+major: 5 minor: 0 memoryClockRate (GHz) 0.928
+pciBusID 0000:01:00.0
+Total memory: 3.95GiB
+Free memory: 3.35GiB
+I tensorflow/core/common_runtime/gpu/gpu_device.cc:906] DMA: 0 
+I tensorflow/core/common_runtime/gpu/gpu_device.cc:916] 0:   Y 
+I tensorflow/core/common_runtime/gpu/gpu_device.cc:975] Creating TensorFlow device (/gpu:0) -> (device: 0, name: GeForce GTX 950M, pci bus id: 0000:01:00.0)
+Traceback (most recent call last):
+  File "runner.py", line 30, in <module>
+    tf.app.run()
+  File "/home/ronald/tf012/local/lib/python2.7/site-packages/tensorflow/python/platform/app.py", line 43, in run
+    sys.exit(main(sys.argv[:1] + flags_passthrough))
+  File "runner.py", line 26, in main
+    meta_experiment_gpu_conf(FLAGS.exp_mode)
+  File "/media/ronald/TOSHIBA EXT1/Document-Models-with-Ext-Information/answer_selection/xnet_plus/train_test_utils.py", line 212, in meta_experiment_gpu_conf
+    train_simple(sess)
+  File "/media/ronald/TOSHIBA EXT1/Document-Models-with-Ext-Information/answer_selection/xnet_plus/train_test_utils.py", line 568, in train_simple
+    model = MY_Model(sess, len(vocab_dict)-2)  
+  File "/media/ronald/TOSHIBA EXT1/Document-Models-with-Ext-Information/answer_selection/xnet_plus/my_model.py", line 73, in __init__
+    self.idf_score_placeholder)
+  File "../../common/model_docsum.py", line 327, in policy_network_xnet_plus_qa
+    cos_similarity = calc_cos_similarity(document_sents_ext,document_sents_titimg[0]) # similarity with question
+IndexError: list index out of range

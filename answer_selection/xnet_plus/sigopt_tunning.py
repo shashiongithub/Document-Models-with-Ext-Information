@@ -4,7 +4,8 @@
 # Project: Document Modeling with External Attention for Sentence Extraction
 
 ####################################
-
+import sys
+sys.path.append('../../common')
 
 from sigopt import Connection
 import math

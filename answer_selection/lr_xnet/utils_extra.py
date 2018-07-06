@@ -4,6 +4,8 @@
 # Project: Document Modeling with External Attention for Sentence Extraction
 
 ####################################
+import sys
+sys.path.append('../../common')
 
 from sklearn.metrics import average_precision_score as aps
 from sklearn.metrics.pairwise import cosine_similarity

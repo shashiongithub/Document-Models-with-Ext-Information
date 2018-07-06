@@ -4,12 +4,12 @@
 # Project: Document Summarization
 # H2020 Summa Project
 
-# v1.2 XNET
+# v1.2 XNET-QA
 #   author: Ronald Cardenas
 ####################################
 
 """
-Question Answering Modules and Models
+Document Summarization/Question Answering Modules and Models
 """
 
 from __future__ import absolute_import
@@ -86,6 +86,36 @@ def sentence_extractor_nonseqrnn_titimgatt(sents_ext, encoder_state, titleimages
       logits = tf.reshape(logits, [-1, FLAGS.max_doc_length, FLAGS.target_label_size], name='final-logits')
     return rnn_extractor_output, logits
 
+
+def sentence_extractor_nonseqrnn_qa(sents_ext, encoder_state, titleimages, isf_scores, idf_scores, locisf_scores):
+    """Implements Sentence Extractor: Non-sequential RNN with attention over title-images
+    Args:
+    sents_ext: Embedding of sentences to label for extraction
+    encoder_state: encoder_state
+    titleimages: Embeddings of title and images in the document
+    isf_scores: [ [batch_size x 1]..]max_doc_length
+    Returns:
+    extractor output and logits
+    """
+
+    # Define Variables
+    weight = variable_on_cpu('weight', [FLAGS.size, FLAGS.target_label_size], tf.random_normal_initializer(seed=seed))
+    bias = variable_on_cpu('bias', [FLAGS.target_label_size], tf.random_normal_initializer(seed=seed))
+
+    # Get RNN output
+    rnn_extractor_output, _ = attentional_isf_rnn(sents_ext, titleimages, isf_scores, idf_scores, locisf_scores, initial_state=encoder_state)
+
+    with variable_scope.variable_scope("Reshape-Out"):
+      rnn_extractor_output = reshape_list2tensor(rnn_extractor_output, FLAGS.max_doc_length, FLAGS.size)
+
+      # Get Final logits without softmax
+      extractor_output_forlogits = tf.reshape(rnn_extractor_output, [-1, FLAGS.size])
+      logits = tf.matmul(extractor_output_forlogits, weight) + bias
+      # logits: [FLAGS.batch_size, FLAGS.max_doc_length, FLAGS.target_label_size]
+      logits = tf.reshape(logits, [-1, FLAGS.max_doc_length, FLAGS.target_label_size], name='final-logits')
+    return rnn_extractor_output, logits
+
+
 def sentence_extractor_seqrnn_docatt(sents_ext, encoder_outputs, encoder_state, sents_labels):
     """Implements Sentence Extractor: Sequential RNN with attention over sentences during encoding
     Args:
@@ -129,14 +159,25 @@ def sentence_extractor_seqrnn_docatt(sents_ext, encoder_outputs, encoder_state, 
     return extractor_outputs, logits
 
 
-def policy_network(vocab_embed_variable, document_placeholder, label_placeholder):
+def resize_feat_to_emb(feat):
+    """
+    [batch_size,max_doc_len] -> [batch_size,max_doc_len,sentemb_size]
+    """
+    flat_feat = tf.reshape(feat,[-1,1])
+    temp = tf.concat(1,[flat_feat] * FLAGS.sentembed_size)
+    sph_rs = tf.reshape(temp,shape=[-1,FLAGS.max_doc_length,FLAGS.sentembed_size])
+    scores_list = reshape_tensor2list(sph_rs, FLAGS.max_doc_length, FLAGS.sentembed_size)
+    return scores_list
+
+
+
+def policy_network(vocab_embed_variable, document_placeholder, label_placeholder, get_cos=False):
     """Build the policy core network.
     Args:
     vocab_embed_variable: [vocab_size, FLAGS.wordembed_size], embeddings without PAD and UNK
     document_placeholder: [None,(FLAGS.max_doc_length + FLAGS.max_title_length + FLAGS.max_image_length +
                                  FLAGS.max_firstsentences_length + FLAGS.max_randomsentences_length), FLAGS.max_sent_length]
     label_placeholder: Gold label [None, FLAGS.max_doc_length, FLAGS.target_label_size], only used during cross entropy training of JP's model.
-    isf_scores: ISF scores per sentence [None, FLAGS.max_doc_length]
     Returns:
     Outputs of sentence extractor and logits without softmax
     """
@@ -186,7 +227,8 @@ def policy_network(vocab_embed_variable, document_placeholder, label_placeholder
         document_sents_titimg = document_sent_embedding[FLAGS.max_doc_length:]
 
         with variable_scope.variable_scope("Cosine_Similarity"):
-            cos_similarity = calc_cos_similarity(document_sents_ext,document_sents_titimg[0]) # similarity with question
+            cos_similarity = [] if not get_cos else \
+                calc_cos_similarity(document_sents_ext,document_sents_titimg[0]) # similarity with question
 
         ### Document Encoder
         with tf.variable_scope('DocEnc') as scope:
@@ -220,6 +262,161 @@ def policy_network(vocab_embed_variable, document_placeholder, label_placeholder
     return extractor_output, logits, cos_similarity
 
 
+def policy_network_xnet_plus_qa(vocab_embed_variable, document_placeholder, label_placeholder,
+    isf_scores_placeholder, idf_scores_placeholder, locisf_scores_placeholder):
+    """Build the policy core network.
+    Args:
+    vocab_embed_variable: [vocab_size, FLAGS.wordembed_size], embeddings without PAD and UNK
+    document_placeholder: [None,(FLAGS.max_doc_length + FLAGS.max_title_length + FLAGS.max_image_length +
+                                 FLAGS.max_firstsentences_length + FLAGS.max_randomsentences_length), FLAGS.max_sent_length]
+    label_placeholder: Gold label [None, FLAGS.max_doc_length, FLAGS.target_label_size], only used during cross entropy training of JP's model.
+    isf_scores: ISF scores per sentence [None, FLAGS.max_doc_length]
+    Returns:
+    Outputs of sentence extractor and logits without softmax
+    """
+
+    with tf.variable_scope('PolicyNetwork') as scope:
+        ### Full Word embedding Lookup Variable
+        # PADDING embedding non-trainable
+        pad_embed_variable = variable_on_cpu("pad_embed", [1, FLAGS.wordembed_size], tf.constant_initializer(0), trainable=False)
+        # UNK embedding trainable
+        unk_embed_variable = variable_on_cpu("unk_embed", [1, FLAGS.wordembed_size], tf.constant_initializer(0), trainable=True)
+        # Get fullvocab_embed_variable
+        fullvocab_embed_variable = tf.concat(0, [pad_embed_variable, unk_embed_variable, vocab_embed_variable])
+        # print(fullvocab_embed_variable)
+
+        ### Lookup layer
+        with tf.variable_scope('Lookup') as scope:
+            document_placeholder_flat = tf.reshape(document_placeholder, [-1])
+            document_word_embedding = tf.nn.embedding_lookup(fullvocab_embed_variable, document_placeholder_flat, name="Lookup")
+            document_word_embedding = tf.reshape(document_word_embedding, [-1, (FLAGS.max_doc_length + FLAGS.max_title_length + FLAGS.max_image_length +
+                                                                                FLAGS.max_firstsentences_length + FLAGS.max_randomsentences_length),
+                                                                           FLAGS.max_sent_length, FLAGS.wordembed_size])
+        ### Convolution Layer
+        with tf.variable_scope('ConvLayer') as scope:
+            document_word_embedding = tf.reshape(document_word_embedding, [-1, FLAGS.max_sent_length, FLAGS.wordembed_size])
+            document_sent_embedding = conv1d_layer_sentence_representation(document_word_embedding) # [None, sentembed_size]
+            document_sent_embedding = tf.reshape(document_sent_embedding, [-1, (FLAGS.max_doc_length + FLAGS.max_title_length + FLAGS.max_image_length +
+                                                                                FLAGS.max_firstsentences_length + FLAGS.max_randomsentences_length), FLAGS.sentembed_size])
+        ### Reshape Tensor to List [-1, (max_doc_length+max_title_length+max_image_length), sentembed_size] -> List of [-1, sentembed_size]
+        with variable_scope.variable_scope("ReshapeDoc_TensorToList"):
+            document_sent_embedding = reshape_tensor2list(document_sent_embedding, (FLAGS.max_doc_length + FLAGS.max_title_length + FLAGS.max_image_length +
+                                                                                    FLAGS.max_firstsentences_length + FLAGS.max_randomsentences_length), FLAGS.sentembed_size)
+            isf_scores_list = []
+            idf_scores_list = []
+            locisf_scores_list = []
+            if FLAGS.use_locisf:
+              locisf_scores_list = resize_feat_to_emb(locisf_scores_placeholder)
+            if FLAGS.use_isf:
+              isf_scores_list = resize_feat_to_emb(isf_scores_placeholder)
+            if FLAGS.use_idf:
+              idf_scores_list = resize_feat_to_emb(idf_scores_placeholder)
+              
+        # document_sents_enc
+        document_sents_enc = document_sent_embedding[:FLAGS.max_doc_length]
+        if FLAGS.doc_encoder_reverse:
+            document_sents_enc = document_sents_enc[::-1]
+
+        # document_sents_ext
+        document_sents_ext = document_sent_embedding[:FLAGS.max_doc_length]
+
+        # document_sents_titimg
+        document_sents_titimg = document_sent_embedding[FLAGS.max_doc_length:]
+
+        with variable_scope.variable_scope("Cosine_Similarity"):
+            cos_similarity = calc_cos_similarity(document_sents_ext,document_sents_titimg[0]) # similarity with question
+            sent_emb = reshape_list2tensor(document_sents_ext,FLAGS.max_doc_length,FLAGS.sentembed_size)
+            ques_emb = reshape_list2tensor(document_sents_titimg,1,FLAGS.sentembed_size)
+
+        ### Document Encoder
+        with tf.variable_scope('DocEnc') as scope:
+            encoder_outputs, encoder_state = simple_rnn(document_sents_enc)
+
+        ### Sentence Label Extractor
+        with tf.variable_scope('SentExt') as scope:
+            if (FLAGS.attend_encoder) and (len(document_sents_titimg) != 0):
+                # Multiple decoder
+                print("Multiple decoder is not implement yet.")
+                exit(0)
+
+            elif (not FLAGS.attend_encoder) and (len(document_sents_titimg) != 0):
+                # Attend only titimages during decoding
+                extractor_output, logits = sentence_extractor_nonseqrnn_qa(
+                                                document_sents_ext, encoder_state, document_sents_titimg,
+                                                isf_scores_list, idf_scores_list,locisf_scores_list)
+
+            elif (FLAGS.attend_encoder) and (len(document_sents_titimg) == 0):
+                # JP model: attend encoder
+                extractor_outputs, logits = sentence_extractor_seqrnn_docatt(document_sents_ext, encoder_outputs, encoder_state, label_placeholder)
+
+            else:
+                # Attend nothing
+                extractor_output, logits = sentence_extractor_nonseqrnn_noatt(document_sents_ext, encoder_state)
+
+    return extractor_output, logits, cos_similarity,sent_emb,ques_emb
+
+
+def policy_network_paircnn_qa(vocab_embed_variable, document_placeholder):
+    """Build the policy core network.
+    Args:
+    vocab_embed_variable: [vocab_size, FLAGS.wordembed_size], embeddings without PAD and UNK
+    document_placeholder: [None,(FLAGS.max_doc_length + FLAGS.max_title_length + FLAGS.max_image_length +
+                                 FLAGS.max_firstsentences_length + FLAGS.max_randomsentences_length), FLAGS.max_sent_length]
+    label_placeholder: Gold label [None, FLAGS.max_doc_length, FLAGS.target_label_size], only used during cross entropy training of JP's model.
+    isf_scores: ISF scores per sentence [None, FLAGS.max_doc_length]
+    Returns:
+    Outputs of sentence extractor and logits without softmax
+    """
+
+    with tf.variable_scope('CNN_baseline') as scope:
+
+        ### Full Word embedding Lookup Variable
+        # PADDING embedding non-trainable
+        pad_embed_variable = variable_on_cpu("pad_embed", [1, FLAGS.wordembed_size], tf.constant_initializer(0), trainable=False)
+        # UNK embedding trainable
+        unk_embed_variable = variable_on_cpu("unk_embed", [1, FLAGS.wordembed_size], tf.constant_initializer(0), trainable=True)
+        # Get fullvocab_embed_variable
+        fullvocab_embed_variable = tf.concat(0, [pad_embed_variable, unk_embed_variable, vocab_embed_variable])
+        # print(fullvocab_embed_variable)
+
+        ### Lookup layer
+        with tf.variable_scope('Lookup') as scope:
+            document_placeholder_flat = tf.reshape(document_placeholder, [-1])
+            document_word_embedding = tf.nn.embedding_lookup(fullvocab_embed_variable, document_placeholder_flat, name="Lookup")
+            document_word_embedding = tf.reshape(document_word_embedding, [-1, 2,FLAGS.max_sent_length, FLAGS.wordembed_size])
+            # print(document_word_embedding)
+
+        ### Convolution Layer
+        with tf.variable_scope('ConvLayer') as scope:
+            document_word_embedding = tf.reshape(document_word_embedding, [-1, FLAGS.max_sent_length, FLAGS.wordembed_size])
+            document_sent_embedding = conv1d_layer_sentence_representation(document_word_embedding) # [None, sentembed_size]
+            document_sent_embedding = tf.reshape(document_sent_embedding, [-1, 2, FLAGS.sentembed_size])
+
+        ### Reshape Tensor to List [-1, 2, sentembed_size] -> List of [-1, sentembed_size]
+        with variable_scope.variable_scope("ReshapeDoc_TensorToList"):
+            document_sent_embedding = reshape_tensor2list(document_sent_embedding, 2, FLAGS.sentembed_size)
+
+
+        with variable_scope.variable_scope("Composing_MLP"):
+            candidate = document_sent_embedding[0]
+            question  = document_sent_embedding[1]
+            composed = tf.concat(1,[candidate,question])
+
+            in_prob = FLAGS.dropout if FLAGS.use_dropout else 1.0
+            composed = tf.nn.dropout(composed,keep_prob=in_prob,seed=seed)
+
+            weight = variable_on_cpu('weight_ff', [2*FLAGS.sentembed_size, FLAGS.mlp_size], tf.random_normal_initializer(seed=seed))
+            bias = variable_on_cpu('bias_ff', [FLAGS.mlp_size], tf.random_normal_initializer(seed=seed))
+            weight_out = variable_on_cpu('weight_out', [FLAGS.mlp_size, FLAGS.target_label_size], tf.random_normal_initializer(seed=seed))
+            bias_out = variable_on_cpu('bias_out', [FLAGS.target_label_size], tf.random_normal_initializer(seed=seed))
+
+            mlp = tf.nn.relu(tf.matmul(composed, weight) + bias,name='ff_layer')
+            logits = tf.matmul(mlp, weight_out) + bias_out
+
+    return logits
+
+
+
 def calc_cos_similarity(sentences_emb,question_emb):
   '''
   Calculates cosine similarity between the article sentences and question
@@ -239,7 +436,6 @@ def calc_cos_similarity(sentences_emb,question_emb):
     sims.append(csim)
   sims = tf.concat(1,sims)
   sims = tf.select(tf.is_nan(sims),tf.zeros_like(sims),sims) # case whe sent_emb is zero (padded sentence)
-
   return sims
 
 
@@ -266,19 +462,30 @@ def cross_entropy_loss(logits, labels, weights):
         cross_entropy = tf.reduce_sum(cross_entropy, reduction_indices=1) # [FLAGS.batch_size]
         cross_entropy_mean = tf.reduce_mean(cross_entropy, name='crossentropy')
 
-        # ## Cross entroy / sentence
-        # cross_entropy_sum = tf.reduce_sum(cross_entropy)
-        # valid_sentences = tf.reduce_sum(weights)
-        # cross_entropy_mean = cross_entropy_sum / valid_sentences
-
-        # cross_entropy = -tf.reduce_sum(labels * tf.log(logits), reduction_indices=1)
-        # cross_entropy_mean = tf.reduce_mean(cross_entropy, name='crossentropy')
-
         tf.add_to_collection('cross_entropy_loss', cross_entropy_mean)
         # # # The total loss is defined as the cross entropy loss plus all of
         # # # the weight decay terms (L2 loss).
         # # return tf.add_n(tf.get_collection('losses'), name='total_loss')
     return cross_entropy_mean
+
+
+def cross_entropy_loss_paircnn_qa(logits, labels):
+    """Estimate cost of predictions
+    Add summary for "cost" and "cost/avg".
+    Args:
+    logits: Logits from inference(). [FLAGS.batch_size, FLAGS.max_doc_length, FLAGS.target_label_size]
+    labels: Sentence extraction gold levels [FLAGS.batch_size, FLAGS.max_doc_length, FLAGS.target_label_size]
+    Returns:
+    Cross-entropy Cost
+    """
+    with tf.variable_scope('CrossEntropyLoss') as scope:
+        # Reshape logits and labels to match the requirement of softmax_cross_entropy_with_logits
+        cross_entropy = tf.nn.softmax_cross_entropy_with_logits(logits, labels) # [FLAGS.batch_size]
+        cross_entropy_mean = tf.reduce_mean(cross_entropy, name='crossentropy')
+        tf.add_to_collection('cross_entropy_loss', cross_entropy_mean)
+    return cross_entropy_mean
+
+
 
 ### Training functions
 
@@ -296,7 +503,6 @@ def train_cross_entropy_loss(cross_entropy_loss):
         grads_and_vars_capped_norm = grads_and_vars
         if FLAGS.max_gradient_norm != -1:
             grads_and_vars_capped_norm = [(tf.clip_by_norm(grad,FLAGS.max_gradient_norm), var) for grad, var in grads_and_vars]
-
         grads_to_summ = [tensor for tensor,var in grads_and_vars if tensor!=None]
         grads_to_summ = [tf.reshape(tensor,[-1]) for tensor in grads_to_summ 
                                                     if tensor.dtype==tf.float16 or 
@@ -305,7 +511,7 @@ def train_cross_entropy_loss(cross_entropy_loss):
         # Apply Gradients
         return optimizer.apply_gradients(grads_and_vars_capped_norm),grads_to_summ
 
-#####
+
 
 
 
@@ -343,6 +549,40 @@ def save_metrics(filename,idx,acc,mrr,_map):
   out.close()
 
 
+### Accuracy QAS
+
+def accuracy_qas_any(logits, labels, weights):
+  """
+  Estimate accuracy of predictions for Question Answering Selection
+  If any sentence predicted as 1 is on the gold-sentences set (the answer set of sentences),
+  then sample is correctly classified
+  Args:
+    logits: Logits from inference(). [FLAGS.batch_size, FLAGS.max_doc_length, FLAGS.target_label_size]
+    labels: Sentence extraction gold levels [FLAGS.batch_size, FLAGS.max_doc_length, FLAGS.target_label_size]
+    weights: Weights to avoid padded part [FLAGS.batch_size, FLAGS.max_doc_length]
+  Returns:
+    Accuracy: Estimates average of accuracy for each sentence
+  """
+  with tf.variable_scope('Accuracy_QAS_any') as scope:
+    #logits = tf.reshape(logits, [-1, FLAGS.target_label_size]) # [FLAGS.batch_size*FLAGS.max_doc_length, FLAGS.target_label_size]
+    #labels = tf.reshape(labels, [-1, FLAGS.target_label_size]) # [FLAGS.batch_size*FLAGS.max_doc_length, FLAGS.target_label_size]
+    final_shape = tf.shape(weights)
+    logits_oh = tf.equal(tf.argmax(logits,2),tf.zeros(final_shape,dtype=tf.int64))
+    logits_oh = tf.cast(logits_oh, dtype=tf.float32)
+    labels_oh = tf.equal(tf.argmax(labels,2),tf.zeros(final_shape,dtype=tf.int64))
+    labels_oh = tf.cast(tf.argmax(labels,2), dtype=tf.float32) # [batch_size, max_doc_length]
+    if FLAGS.weighted_loss:
+      weights = tf.cast(weights,tf.float32)
+      logits_oh = tf.mul(logits_oh,weights) # only need to mask one of two mats
+    correct_pred = tf.reduce_sum(tf.mul(logits_oh,labels_oh),1) # [batch_size]
+    #correct_pred = tf.diag_part(tf.matmul(logits_oh,labels_oh,transpose_b = True)) # [batch_size]
+    correct_pred = tf.cast(correct_pred,dtype=tf.bool) # True if sum of matches is > 0
+    correct_pred = tf.cast(correct_pred, tf.float32)
+    # Get Accuracy
+    accuracy = tf.reduce_mean(correct_pred, name='accuracy')
+  return accuracy
+
+
 ### Accuracy QAS TOP-RANKED
 
 def accuracy_qas_top(probs, labels, weights, scores):
@@ -361,7 +601,6 @@ def accuracy_qas_top(probs, labels, weights, scores):
   one_prob = probs[:,:,0]
   labels = labels[:,:,0]
   bs,ld = labels.shape
-
   if FLAGS.filtered_setting:
     # limit space search to top K ranked sents
     topk_mask = np.zeros([bs,ld],dtype=np.float32)
@@ -371,10 +610,8 @@ def accuracy_qas_top(probs, labels, weights, scores):
             break
         topk_mask[i,scores[i,j]] = 1.0
     one_prob = one_prob * topk_mask
-
   if FLAGS.weighted_loss:
     one_prob = one_prob * weights # only need to mask one of two mats
-
   mask = labels.sum(axis=1) > 0
   correct = 0.0
   total = 0.0
@@ -384,12 +621,10 @@ def accuracy_qas_top(probs, labels, weights, scores):
     correct += labels[i,one_prob[i,:].argmax()] 
     total += 1.0
   accuracy = correct / total
-
   return accuracy
 
 
-
-def mrr_metric(probs,labels,weights,scores,data_type):
+def mrr_metric(probs,labels,weights,scores,data_type=''):
   '''
   Calculates Mean reciprocal rank: mean(1/pos),
     pos : how many sentences are ranked higher than the answer-sentence with highst prob (given by model)
@@ -400,11 +635,9 @@ def mrr_metric(probs,labels,weights,scores,data_type):
   Returns:
     MRR: estimates MRR at document level
   '''
-
   one_prob = probs[:,:,0] # slice prob of being 1 | [batch_size, max_doc_len]
   labels = labels[:,:,0] #[batch_size, max_doc_len]
   bs,ld = one_prob.shape
-
   if FLAGS.filtered_setting:
     # limit space search to top K ranked sents
     topk_mask = np.zeros([bs,ld],dtype=np.float32)
@@ -417,7 +650,6 @@ def mrr_metric(probs,labels,weights,scores,data_type):
   if FLAGS.weighted_loss:
     one_prob = one_prob * weights # only need to mask one of two mats
     labels = labels * weights
-
   sufx = "_subsampled" if FLAGS.use_subsampled_dataset and data_type=="training" else ""
   dump_trec_format(labels,one_prob,weights)
   popen = sp.Popen(["../trec_eval/trec_eval",
@@ -426,14 +658,12 @@ def mrr_metric(probs,labels,weights,scores,data_type):
     os.path.join(FLAGS.train_dir,"temp.trec_res")],
     stdout=sp.PIPE)
   with popen.stdout as f:
-    metric = f.read().decode('ascii').strip("\n")[-6:]    
+    metric = f.read().decode('ascii').strip("\n")[-6:]
     mrr = float(metric)
-    
   return mrr
 
 
-
-def map_score(probs,labels,weights,scores,data_type):
+def map_score(probs,labels,weights,scores,data_type=''):
   '''
   Calculates Mean Average Precision MAP
   Args:
@@ -446,7 +676,6 @@ def map_score(probs,labels,weights,scores,data_type):
   labels = labels[:,:,0]
   one_prob = probs[:,:,0]
   bs,ld = one_prob.shape
-
   if FLAGS.filtered_setting:
     # limit space search to top K ranked sents
     topk_mask = np.zeros([bs,ld],dtype=np.float32)
@@ -456,11 +685,9 @@ def map_score(probs,labels,weights,scores,data_type):
             break
         topk_mask[i,scores[i,j]] = 1.0
     one_prob = one_prob * topk_mask
-
   if FLAGS.weighted_loss:
     one_prob = one_prob * weights # only need to mask one of two mats
     labels = labels * weights
-
   sufx = "_subsampled" if FLAGS.use_subsampled_dataset and data_type=="training" else ""
   dump_trec_format(labels,one_prob,weights)
   popen = sp.Popen(["../trec_eval/trec_eval",
@@ -498,22 +725,18 @@ def accuracy_qas_random(probs, labels, weights, scores):
   Returns:
     Accuracy: Estimates average of accuracy for each sentence
   """
-  
   labels = labels[:,:,0]
   bs,ld = labels.shape
-
   if FLAGS.weighted_loss:
     labels = labels * weights # only need to mask one of two mats
-
   len_docs = weights.sum(axis=1)
   correct = 0.0
   for i in range(bs):
     rnd_idx = np.random.random_integers(0,len_docs[i]-1)
-    correct += labels[i,rnd_idx] 
-  
+    correct += labels[i,rnd_idx]
   accuracy = correct / bs
-
   return accuracy
+
 
 def mrr_metric_random(probs,labels,weights,scores):
   '''
@@ -526,31 +749,25 @@ def mrr_metric_random(probs,labels,weights,scores):
   Returns:
     MRR: estimates MRR at document level
   '''
-
   one_prob = probs[:,:,0] # slice prob of being 1 | [batch_size, max_doc_len]
   labels = labels[:,:,0] #[batch_size, max_doc_len]
   bs,ld = one_prob.shape
-
   if FLAGS.weighted_loss:
     one_prob = one_prob * weights # only need to mask one of two mats
-
   len_docs = weights.sum(axis=1)
   temp = np.zeros([bs,ld])
   for i in range(bs):
     rnd_idx = np.random.random_integers(0,len_docs[i]-1)
     temp[i,rnd_idx] = one_prob[i,rnd_idx]
   one_prob = temp
-
   max_gold_prob = np.max(one_prob*labels,axis=1) # maximum prob bw golden answer sentences acc by model [batch_size]
   mask = one_prob.sum(axis=1) > 0
-
   mrr = 0.0
   for id_doc in range(bs):
     if mask[id_doc]:
       rel_rank = 1 + sum(one_prob[id_doc,:]>max_gold_prob[id_doc]) # how many sentences have higher prob than most prob answer +1
       mrr += 1.0/rel_rank # accumulate inverse rank
   mrr = mrr / bs # mrr as mean of inverse rank
-
   return mrr
 
 
@@ -566,10 +783,8 @@ def map_score_random(probs,labels,weights,scores):
   '''
   labels = labels[:,:,0]
   bs,ld = labels.shape
-
   if FLAGS.weighted_loss:
     labels = labels * weights
-
   len_docs = weights.sum(axis=1)
   aps_batch = 0.0
   for i in range(bs):
@@ -577,9 +792,7 @@ def map_score_random(probs,labels,weights,scores):
     rnd_idx = np.random.random_integers(0,len_docs[i]-1)
     temp[rnd_idx] = 1.0
     aps_batch += aps(labels[i],temp) 
-
   map_sc = aps_batch / bs
-
   return map_sc
 
 

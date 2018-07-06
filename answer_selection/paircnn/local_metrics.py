@@ -16,141 +16,22 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import numpy as np
-import tensorflow as tf
-from tensorflow.python.ops import variable_scope
-from tensorflow.python.ops import seq2seq
-from tensorflow.python.ops import math_ops
+import sys
+sys.path.append('../../common')
 
-# from tf.nn import variable_scope
-from my_flags import FLAGS
-from model_utils import *
-from sklearn.metrics import average_precision_score as aps
-import subprocess as sp
 import os
-import pdb
+import numpy as np
+import subprocess as sp
+import tensorflow as tf
+from my_flags import FLAGS
+from sklearn.metrics import average_precision_score as aps
 
 seed = 42
 np.random.seed(seed)
 
-### Various types of extractor
-
-def policy_network(vocab_embed_variable, document_placeholder):
-    """Build the policy core network.
-    Args:
-    vocab_embed_variable: [vocab_size, FLAGS.wordembed_size], embeddings without PAD and UNK
-    document_placeholder: [None,(FLAGS.max_doc_length + FLAGS.max_title_length + FLAGS.max_image_length +
-                                 FLAGS.max_firstsentences_length + FLAGS.max_randomsentences_length), FLAGS.max_sent_length]
-    label_placeholder: Gold label [None, FLAGS.max_doc_length, FLAGS.target_label_size], only used during cross entropy training of JP's model.
-    isf_scores: ISF scores per sentence [None, FLAGS.max_doc_length]
-    Returns:
-    Outputs of sentence extractor and logits without softmax
-    """
-
-    with tf.variable_scope('CNN_baseline') as scope:
-
-        ### Full Word embedding Lookup Variable
-        # PADDING embedding non-trainable
-        pad_embed_variable = variable_on_cpu("pad_embed", [1, FLAGS.wordembed_size], tf.constant_initializer(0), trainable=False)
-        # UNK embedding trainable
-        unk_embed_variable = variable_on_cpu("unk_embed", [1, FLAGS.wordembed_size], tf.constant_initializer(0), trainable=True)
-        # Get fullvocab_embed_variable
-        fullvocab_embed_variable = tf.concat(0, [pad_embed_variable, unk_embed_variable, vocab_embed_variable])
-        # print(fullvocab_embed_variable)
-
-        ### Lookup layer
-        with tf.variable_scope('Lookup') as scope:
-            document_placeholder_flat = tf.reshape(document_placeholder, [-1])
-            document_word_embedding = tf.nn.embedding_lookup(fullvocab_embed_variable, document_placeholder_flat, name="Lookup")
-            document_word_embedding = tf.reshape(document_word_embedding, [-1, 2,FLAGS.max_sent_length, FLAGS.wordembed_size])
-            # print(document_word_embedding)
-
-        ### Convolution Layer
-        with tf.variable_scope('ConvLayer') as scope:
-            document_word_embedding = tf.reshape(document_word_embedding, [-1, FLAGS.max_sent_length, FLAGS.wordembed_size])
-            document_sent_embedding = conv1d_layer_sentence_representation(document_word_embedding) # [None, sentembed_size]
-            document_sent_embedding = tf.reshape(document_sent_embedding, [-1, 2, FLAGS.sentembed_size])
-
-        ### Reshape Tensor to List [-1, 2, sentembed_size] -> List of [-1, sentembed_size]
-        with variable_scope.variable_scope("ReshapeDoc_TensorToList"):
-            document_sent_embedding = reshape_tensor2list(document_sent_embedding, 2, FLAGS.sentembed_size)
-
-
-        with variable_scope.variable_scope("Composing_MLP"):
-            candidate = document_sent_embedding[0]
-            question  = document_sent_embedding[1]
-            composed = tf.concat(1,[candidate,question])
-
-            in_prob = FLAGS.dropout if FLAGS.use_dropout else 1.0
-            composed = tf.nn.dropout(composed,keep_prob=in_prob,seed=seed)
-
-            weight = variable_on_cpu('weight_ff', [2*FLAGS.sentembed_size, FLAGS.mlp_size], tf.random_normal_initializer(seed=seed))
-            bias = variable_on_cpu('bias_ff', [FLAGS.mlp_size], tf.random_normal_initializer(seed=seed))
-            weight_out = variable_on_cpu('weight_out', [FLAGS.mlp_size, FLAGS.target_label_size], tf.random_normal_initializer(seed=seed))
-            bias_out = variable_on_cpu('bias_out', [FLAGS.target_label_size], tf.random_normal_initializer(seed=seed))
-
-            mlp = tf.nn.relu(tf.matmul(composed, weight) + bias,name='ff_layer')
-            logits = tf.matmul(mlp, weight_out) + bias_out
-
-    return logits
-
-
-def cross_entropy_loss(logits, labels):
-    """Estimate cost of predictions
-    Add summary for "cost" and "cost/avg".
-    Args:
-    logits: Logits from inference(). [FLAGS.batch_size, FLAGS.max_doc_length, FLAGS.target_label_size]
-    labels: Sentence extraction gold levels [FLAGS.batch_size, FLAGS.max_doc_length, FLAGS.target_label_size]
-    weights: Weights to avoid padded part [FLAGS.batch_size, FLAGS.max_doc_length]
-    Returns:
-    Cross-entropy Cost
-    """
-    with tf.variable_scope('CrossEntropyLoss') as scope:
-        # Reshape logits and labels to match the requirement of softmax_cross_entropy_with_logits
-        #logits = tf.reshape(logits, [-1, FLAGS.target_label_size]) # [FLAGS.batch_size, FLAGS.target_label_size]
-        #labels = tf.reshape(labels, [-1, FLAGS.target_label_size]) # [FLAGS.batch_size, FLAGS.target_label_size]
-        cross_entropy = tf.nn.softmax_cross_entropy_with_logits(logits, labels) # [FLAGS.batch_size]
-        #cross_entropy = tf.reshape(cross_entropy, [-1, FLAGS.max_doc_length])  # [FLAGS.batch_size, FLAGS.max_doc_length]
-
-
-        # Cross entroy / document
-        #cross_entropy = tf.reduce_sum(cross_entropy, reduction_indices=1) # [FLAGS.batch_size]
-        cross_entropy_mean = tf.reduce_mean(cross_entropy, name='crossentropy')
-
-        tf.add_to_collection('cross_entropy_loss', cross_entropy_mean)
-
-    return cross_entropy_mean
-
-### Training functions
-
-def train_cross_entropy_loss(cross_entropy_loss):
-    """ Training with Gold Label: Pretraining network to start with a better policy
-    Args: cross_entropy_loss
-    """
-    with tf.variable_scope('TrainCrossEntropyLoss') as scope:
-
-        optimizer = tf.train.AdamOptimizer(learning_rate=FLAGS.learning_rate, name='adam')
-
-        # Compute gradients of policy network
-        policy_network_variables = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope="CNN_baseline")
-        grads_and_vars = optimizer.compute_gradients(cross_entropy_loss, var_list=policy_network_variables)
-        grads_and_vars_capped_norm = grads_and_vars
-        if FLAGS.max_gradient_norm != -1:
-            grads_and_vars_capped_norm = [(tf.clip_by_norm(grad,FLAGS.max_gradient_norm), var) for grad, var in grads_and_vars]
-
-        grads_to_summ = [tensor for tensor,var in grads_and_vars if tensor!=None]
-        grads_to_summ = [tf.reshape(tensor,[-1]) for tensor in grads_to_summ 
-                                                    if tensor.dtype==tf.float16 or 
-                                                    tensor.dtype==tf.float32]
-        grads_to_summ = tf.concat(0,grads_to_summ)
-        # Apply Gradients
-        return optimizer.apply_gradients(grads_and_vars_capped_norm),grads_to_summ
-
-
 
 ##########
 ##########
-
 
 
 def group_by_doc(probs,labels,qids):
@@ -185,7 +66,6 @@ def group_by_doc(probs,labels,qids):
         labels_group[qid-1,:] = l[:]
         weights[qid-1,:] = [1]*len_doc + zero_fill
     return prob_group,labels_group,weights
-
 
 
 ### Accuracy Calculations

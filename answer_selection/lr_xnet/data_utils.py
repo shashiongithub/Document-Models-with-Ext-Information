@@ -12,6 +12,8 @@
 Question Answering Modules and Models
 """
 
+import sys
+sys.path.append('../../common')
 
 from __future__ import absolute_import
 from __future__ import division
@@ -287,7 +289,7 @@ class Data:
         
         label_prefix = ""
         
-        full_data_file_prefix = FLAGS.preprocessed_data_directory + "/" + FLAGS.data_mode + "/" + data_type
+        full_data_file_prefix = FLAGS.preprocessed_data_directory + "/" + FLAGS.data_mode + "/" + data_type + '.org_ent'
         scores_file_prefix = FLAGS.preprocessed_data_directory + "/" + FLAGS.data_mode + "/" + data_type
         
         print("Data file prefix (.doc, .question, .label, .score): %s"%full_data_file_prefix)

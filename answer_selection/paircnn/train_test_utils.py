@@ -2,6 +2,9 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import sys
+sys.path.append('../../common')
+
 import math
 import os
 import random
@@ -15,8 +18,8 @@ import tensorflow as tf
 from data_utils import DataProcessor, BatchData, write_prediction_summaries, write_cos_sim
 from my_flags import FLAGS
 from my_model import MY_Model
-from model_utils import convert_logits_to_softmax
-from model_docsum import mrr_metric, map_score, accuracy_qas_top, save_metrics, group_by_doc
+from model_utils import convert_logits_to_softmax_paircnn
+from local_metrics import mrr_metric, map_score, accuracy_qas_top, save_metrics, group_by_doc
 
 seed = 42
 np.random.seed(seed)

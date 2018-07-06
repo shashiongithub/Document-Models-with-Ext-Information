@@ -2,7 +2,7 @@
 
 mkdir -p train_dir_newsqa
 
-python runnner.py --gpu_id 0 \
+python runner.py --gpu_id 0 \
 --train_dir train_dir_newsqa \
 --exp_mode train \
 --max_sent_length 50 --max_doc_length 64 \

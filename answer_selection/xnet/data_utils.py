@@ -12,13 +12,15 @@
 Question Answering Modules and Models
 """
 
-
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import sys
+sys.path.append('../../common')
+
 import numpy as np
-import tensorflow as tf
+import tensorflow as tensorflow
 import random
 import os
 import pdb
@@ -235,7 +237,7 @@ class Data:
         label_prefix = ""
         scores_file_prefix = ""
         
-        full_data_file_prefix = FLAGS.preprocessed_data_directory + "/" + FLAGS.data_mode + "/" + data_type
+        full_data_file_prefix = FLAGS.preprocessed_data_directory + "/" + FLAGS.data_mode + "/" + data_type + '.org_ent'
         scores_file_prefix = FLAGS.preprocessed_data_directory + "/" + FLAGS.data_mode + "/" + data_type
 
         print("Data file prefix (.doc, .question, .label, .score): %s"%full_data_file_prefix)

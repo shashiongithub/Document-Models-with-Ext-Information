@@ -13,6 +13,8 @@
 """
 Question Answering Modules and Models
 """
+import sys
+sys.path.append('../../common')
 
 import tensorflow as tf
 from my_flags import FLAGS
