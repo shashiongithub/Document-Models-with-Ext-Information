@@ -5,10 +5,15 @@ This repository contains the code neccesary to reproduce the results in the pape
 Document Modeling with External Attention for Sentence Extraction, Shashi Narayan, Ronald Cardenas, Nikos Papasarantopoulos, Shay B. Cohen, Mirella Lapata, Jiangsheng Yu and Yi Chang, ACL 2018, Melbourne, Australia.
 
 @inproceedings{narayan2018document,
+
   title={Document modeling with external attention for sentence extraction},
+
   author={Narayan, Shashi and Cardenas, Ronald and Papasarantopoulos, Nikos and Cohen, SB and Lapata, M and Yu, J and Chang, Y},
+
   booktitle={Proceedings of the 56st Annual Meeting of the Association for Computational Linguistics, Melbourne, Australia},
+
   year={2018}
+
 }
 
 
@@ -24,8 +29,11 @@ from extractive_summ/.
 
 
 1. Datasets and Resources
+
 a) NewsQA
+
 Download the combined dataset from: https://datasets.maluuba.com/NewsQA/dl
+
 Download splitting scripts from NewsQA repo: https://github.com/Maluuba/newsqa
 
 b) SQuAD: https://rajpurkar.github.io/SQuAD-explorer/
@@ -51,9 +59,11 @@ The preprocessed files will be placed in the folder: answer_selection/datasets/p
 
 
 2. Training
+
 Run the scripts run_<dataset> in each model folder for training.
 
 
 3. Evaluation
+
 Run the scripts eval_<dataset> in each model folder for training.
 
