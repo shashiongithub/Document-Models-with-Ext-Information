@@ -4,17 +4,6 @@ This repository contains the code neccesary to reproduce the results in the pape
 
 Document Modeling with External Attention for Sentence Extraction, Shashi Narayan, Ronald Cardenas, Nikos Papasarantopoulos, Shay B. Cohen, Mirella Lapata, Jiangsheng Yu and Yi Chang, ACL 2018, Melbourne, Australia.
 
-@inproceedings{narayan2018document,
-
-  title={Document modeling with external attention for sentence extraction},
-
-  author={Narayan, Shashi and Cardenas, Ronald and Papasarantopoulos, Nikos and Cohen, SB and Lapata, M and Yu, J and Chang, Y},
-
-  booktitle={Proceedings of the 56st Annual Meeting of the Association for Computational Linguistics, Melbourne, Australia},
-
-  year={2018}
-
-}
 
 
 ## Extractive Summarization
@@ -58,12 +47,12 @@ from answer_selection/datasets/<dataset>/
 The preprocessed files will be placed in the folder: answer_selection/datasets/preprocessed_data/<dataset>
 
 
-2. Training
+3. Training
 
 Run the scripts run_<dataset> in each model folder for training.
 
 
-3. Evaluation
+4. Evaluation
 
 Run the scripts eval_<dataset> in each model folder for training.
 
