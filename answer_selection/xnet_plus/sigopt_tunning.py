@@ -157,7 +157,6 @@ if __name__ == "__main__":
     metric = "mrr"
 
   FLAGS.force_reading = False
-  #FLAGS.train_dir = "/disk/ocean/rcardenas/sidenet_att_extra/train_dir_"+args.dataset+"_subs"
   FLAGS.train_dir = os.path.abspath("./train_dir_" + args.dataset+"_subs")
   FLAGS.train_epoch_crossentropy = 20
 

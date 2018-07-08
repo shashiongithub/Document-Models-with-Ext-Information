@@ -47,8 +47,8 @@ if __name__ == "__main__":
   FLAGS.gpu_id = args.gpu
   
   FLAGS.force_reading = False
-  #FLAGS.train_dir = "/disk/ocean/rcardenas/sidenet/train_dir_"+args.dataset
-  FLAGS.train_dir = os.path.abspath("./train_dir_" + args.dataset+"_subs")
+ 
+  FLAGS.train_dir = os.path.abspath("../xnet/train_dir_" + args.dataset+"_subs")
   FLAGS.train_epoch_crossentropy = 50
 
   if args.dataset=='wikiqa':

@@ -3,6 +3,8 @@
 # Date: July 2017
 # Project: Document Modeling with External Attention for Sentence Extraction
 
+# assumes that XNet has already been trained in subsampled mode (FLAGS.use_subsampled_dataset = True)
+
 ####################################
 
 from __future__ import absolute_import
@@ -47,7 +49,7 @@ if __name__ == "__main__":
   FLAGS.gpu_id = args.gpu
   FLAGS.use_subsampled_dataset = True
   FLAGS.force_reading = False
-  FLAGS.train_dir = "/disk/ocean/rcardenas/sidenet_ems/train_dir_"+args.dataset+"_subs"
+  FLAGS.train_dir = os.path.abspath("../xnet/train_dir_" + args.dataset+"_subs")
   FLAGS.train_epoch_crossentropy = 20
 
   FLAGS.max_sent_length = 50
