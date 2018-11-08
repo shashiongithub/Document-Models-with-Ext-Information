@@ -166,13 +166,20 @@ def map_score(one_prob,labels,weights,data_type):
 
 
 ###############################################################
+
+def trail_id(_id):
+  sid = str(_id)
+  sid = "0"*(7 - len(sid)) + sid
+  return sid
+
+
 def dump_trec_format(labels,scores,weights):
   bs,ld = labels.shape
   output = open(os.path.join(FLAGS.train_dir,"temp.trec_res"),'w')
   doc_lens = weights.sum(axis=1).astype(int)
   for qid in range(bs):
     for aid in range(doc_lens[qid]):
-      output.write("%d 0 %d 0 %.6f 0\n" % (qid+1,aid,scores[qid,aid]))
+      output.write("%d 0 %d 0 %.6f 0\n" % (trail_id(qid+1),trail_id(aid),scores[qid,aid]))
   output.close()
 
 
