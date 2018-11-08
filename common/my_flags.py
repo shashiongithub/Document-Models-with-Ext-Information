@@ -41,6 +41,12 @@ tf.app.flags.DEFINE_string("acc_type",
                            "'top' if top-ranked sent is in gold-answer-sents-set, then correct;"
                            "'any' if any 1-lbled sent is in gold-answer-sents-set, then correct")
 
+tf.app.flags.DEFINE_string("tie_break",
+                           "first",
+                           "Which tie-breaking strategy to use:"
+                           "'first' if earliest in the list is chosen in case of ties;"
+                           "'last' if last is chosen instead")
+
 
 tf.app.flags.DEFINE_boolean("anonymized_setting", False,
                             "Is experiment setting is anonymized? (Note: Summary always select sentences from the original document)")

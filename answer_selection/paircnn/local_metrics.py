@@ -78,6 +78,36 @@ def save_metrics(filename,idx,acc,mrr,_map):
 
 ### Accuracy QAS TOP-RANKED
 
+# def accuracy_qas_top(one_prob, labels, weights):
+#   """
+#   Estimate accuracy of predictions for Question Answering Selection
+#   If top-ranked sentence predicted as 1 is on the gold-sentences set (the answer set of sentences),
+#   then sample is correctly classified
+#   Args:
+#     probs: Probabilities. [FLAGS.batch_size, FLAGS.max_doc_length, FLAGS.target_label_size]
+#     labels: Sentence extraction gold levels [FLAGS.batch_size, FLAGS.max_doc_length, FLAGS.target_label_size]
+#     weights: Weights to avoid padded part [FLAGS.batch_size, FLAGS.max_doc_length]
+#     scores: ISF score indexes sorted in reverse order [FLAGS.batch_size, FLAGS.topK]
+#   Returns:
+#     Accuracy: Estimates average of accuracy for each sentence
+#   """
+#   bs,ld = labels.shape
+
+#   if FLAGS.weighted_loss:
+#     one_prob = one_prob * weights # only need to mask one of two mats
+
+#   mask = labels.sum(axis=1) > 0
+#   correct = 0.0
+#   total = 0.0
+#   for i in range(bs):
+#     if mask[i]==0 or mask[i]==sum(weights[i,:]):
+#       continue
+#     correct += labels[i,one_prob[i,:].argmax()] 
+#     total += 1.0
+#   accuracy = correct / total
+
+#   return accuracy
+
 def accuracy_qas_top(one_prob, labels, weights):
   """
   Estimate accuracy of predictions for Question Answering Selection
@@ -90,7 +120,7 @@ def accuracy_qas_top(one_prob, labels, weights):
     scores: ISF score indexes sorted in reverse order [FLAGS.batch_size, FLAGS.topK]
   Returns:
     Accuracy: Estimates average of accuracy for each sentence
-  """
+  """ 
   bs,ld = labels.shape
 
   if FLAGS.weighted_loss:
@@ -100,14 +130,23 @@ def accuracy_qas_top(one_prob, labels, weights):
   correct = 0.0
   total = 0.0
   for i in range(bs):
-    if mask[i]==0 or mask[i]==sum(weights[i,:]):
+    if mask[i]==0:
       continue
-    correct += labels[i,one_prob[i,:].argmax()] 
+
+    if FLAGS.tie_break=="first":
+      correct += labels[i,one_prob[i,:].argmax()]
+    else:
+      srt_ref = [(x,pos) for pos,x in enumerate(one_prob[i,:])]
+      srt_ref.sort(reverse=True)
+      correct += labels[i,srt_ref[0][1]]
     total += 1.0
-  accuracy = correct / total
+
+  try:
+    accuracy = correct / total if total!=0 else 0
+  except:
+    pdb.set_trace()
 
   return accuracy
-
 
 
 def mrr_metric(one_prob,labels,weights,data_type):
@@ -179,7 +218,7 @@ def dump_trec_format(labels,scores,weights):
   doc_lens = weights.sum(axis=1).astype(int)
   for qid in range(bs):
     for aid in range(doc_lens[qid]):
-      output.write("%d 0 %d 0 %.6f 0\n" % (trail_id(qid+1),trail_id(aid),scores[qid,aid]))
+      output.write("%s 0 %s 0 %.6f 0\n" % (trail_id(qid+1),trail_id(aid),scores[qid,aid]))
   output.close()
 
 
