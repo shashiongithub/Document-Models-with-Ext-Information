@@ -149,6 +149,32 @@ def accuracy_qas_top(one_prob, labels, weights):
   return accuracy
 
 
+# def mrr_metric(one_prob,labels,weights,data_type):
+#   '''
+#   Calculates Mean reciprocal rank: mean(1/pos),
+#     pos : how many sentences are ranked higher than the answer-sentence with highst prob (given by model)
+#   Args:
+#     probs: Probabilities. [FLAGS.batch_size, FLAGS.max_doc_length, FLAGS.target_label_size]
+#     labels: Sentence extraction gold levels [FLAGS.batch_size, FLAGS.max_doc_length, FLAGS.target_label_size]
+#     weights: Weights to avoid padded part [FLAGS.batch_size, FLAGS.max_doc_length]
+#   Returns:
+#     MRR: estimates MRR at document level
+#   '''
+
+#   bs,ld = one_prob.shape
+
+#   dump_trec_format(labels,one_prob,weights)
+#   popen = sp.Popen(["../trec_eval/trec_eval",
+#     "-m", "recip_rank",
+#     os.path.join(FLAGS.preprocessed_data_directory,FLAGS.data_mode,data_type+".rel_info"),
+#     os.path.join(FLAGS.train_dir,"temp.trec_res")],
+#     stdout=sp.PIPE)
+#   with popen.stdout as f:
+#     metric = f.read().strip("\n")[-6:]
+#     mrr = float(metric)
+#   return mrr
+
+
 def mrr_metric(one_prob,labels,weights,data_type):
   '''
   Calculates Mean reciprocal rank: mean(1/pos),
@@ -162,18 +188,65 @@ def mrr_metric(one_prob,labels,weights,data_type):
   '''
 
   bs,ld = one_prob.shape
+  
+  if FLAGS.weighted_loss:
+    one_prob = one_prob * weights # only need to mask one of two mats
+    labels = labels * weights
 
-  dump_trec_format(labels,one_prob,weights)
-  popen = sp.Popen(["../trec_eval/trec_eval",
-    "-m", "recip_rank",
-    os.path.join(FLAGS.preprocessed_data_directory,FLAGS.data_mode,data_type+".rel_info"),
-    os.path.join(FLAGS.train_dir,"temp.trec_res")],
-    stdout=sp.PIPE)
-  with popen.stdout as f:
-    metric = f.read().strip("\n")[-6:]
-    mrr = float(metric)
+  mask = labels.sum(axis=1) > 0
+  mrr = 0.0
+  total = 0.0
+  for i in range(bs):
+    if mask[i]==0:
+      continue
+    srt_ref = []
+    # tie breaking: earliest in list
+    if FLAGS.tie_break=="first":
+        srt_ref = [(-x,j) for j,x in enumerate(one_prob[i,:])]
+        srt_ref.sort()
+    # tie breaking: last in list
+    else:
+        srt_ref = [(x,j) for j,x in enumerate(one_prob[i,:])]
+        srt_ref.sort(reverse=True)
+
+    rel_rank = 0.0
+    for idx_retr,(x,j) in enumerate(srt_ref):
+        if labels[i,j]==1:
+            rel_rank = 1.0 + idx_retr
+            break
+
+    mrr += 1.0/rel_rank # accumulate inverse rank
+    total += 1.0
+  mrr /= total
   return mrr
 
+
+# def map_score(one_prob,labels,weights,data_type):
+#   '''
+#   Calculates Mean Average Precision MAP
+#   Args:
+#     probs: Probabilities. [FLAGS.batch_size, FLAGS.max_doc_length, FLAGS.target_label_size]
+#     labels: Sentence extraction gold levels [FLAGS.batch_size, FLAGS.max_doc_length, FLAGS.target_label_size]
+#     weights: Weights to avoid padded part [FLAGS.batch_size, FLAGS.max_doc_length]
+#   Returns:
+#     MAP: estimates MAP over all batch
+#   '''
+#   bs,ld = one_prob.shape
+
+#   if FLAGS.weighted_loss:
+#     one_prob = one_prob * weights # only need to mask one of two mats
+#     labels = labels * weights
+
+#   dump_trec_format(labels,one_prob,weights)
+#   popen = sp.Popen(["../trec_eval/trec_eval",
+#     "-m", "map",
+#     os.path.join(FLAGS.preprocessed_data_directory,FLAGS.data_mode,data_type+".rel_info"),
+#     os.path.join(FLAGS.train_dir,"temp.trec_res")],
+#     stdout=sp.PIPE)
+#   with popen.stdout as f:
+#     metric = f.read().strip("\n")[-6:]
+#     map_sc = float(metric)
+#   return map_sc
 
 
 def map_score(one_prob,labels,weights,data_type):
@@ -190,18 +263,40 @@ def map_score(one_prob,labels,weights,data_type):
 
   if FLAGS.weighted_loss:
     one_prob = one_prob * weights # only need to mask one of two mats
-    labels = labels * weights
+    #labels = labels * weights
 
-  dump_trec_format(labels,one_prob,weights)
-  popen = sp.Popen(["../trec_eval/trec_eval",
-    "-m", "map",
-    os.path.join(FLAGS.preprocessed_data_directory,FLAGS.data_mode,data_type+".rel_info"),
-    os.path.join(FLAGS.train_dir,"temp.trec_res")],
-    stdout=sp.PIPE)
-  with popen.stdout as f:
-    metric = f.read().strip("\n")[-6:]
-    map_sc = float(metric)
-  return map_sc
+  mask = labels.sum(axis=1) > 0
+  _map = 0.0
+  total = 0.0
+  for i in range(bs):
+    if mask[i]==0:
+      continue
+    srt_ref = []
+    # tie breaking: earliest in list
+    if FLAGS.tie_break=="first":
+        srt_ref = [(-x,j) for j,x in enumerate(one_prob[i,:])]
+        srt_ref.sort()
+    # tie breaking: last in list
+    else:
+        srt_ref = [(x,j) for j,x in enumerate(one_prob[i,:])]
+        srt_ref.sort(reverse=True)
+
+    aps = 0.0
+    n_corr = 0.0
+    for idx_retr,(x,j) in enumerate(srt_ref):
+        if labels[i,j]==1:
+            n_corr += 1.0
+            aps += (n_corr / (idx_retr+1))
+            # break
+    aps /= labels[i,:].sum()
+    _map += aps
+
+    total += 1.0
+  _map /= total
+
+  return _map
+
+
 
 
 ###############################################################
