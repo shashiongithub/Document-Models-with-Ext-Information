@@ -29,7 +29,7 @@ for csp in ["training","validation","test"]:
   
   for qid,labels in enumerate(label_lines):
     labels = labels.split("\n")
-    labels = [int(x) for x in labels[1:]]
+    labels = [int(float(x)) for x in labels[1:]]
     cnts = [float(x) for x in cnts_lines[qid].split("\n")[1:]]
     #wgts = [float(x) for x in wgt_lines[qid].split("\n")[1:]]
     isfs = [float(x) for x in isf_lines[qid].split("\n")[1:]]
@@ -64,7 +64,7 @@ for csp in ["training","validation","test"]:
   locisf_out   = open(os.path.join(pref,csp+".res_locisf_subsampled"),'w')
 
   for qid,idx in enumerate(indexes):
-    labels  = [int(x)   for x in label_lines [idx].split("\n")[1:]]
+    labels  = [int(float(x))   for x in label_lines [idx].split("\n")[1:]]
     cnts    = [float(x) for x in cnts_lines  [idx].split("\n")[1:]]
     isfs    = [float(x) for x in isf_lines   [idx].split("\n")[1:]]
     idfs    = [float(x) for x in idf_lines   [idx].split("\n")[1:]]
