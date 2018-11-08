@@ -78,35 +78,6 @@ def save_metrics(filename,idx,acc,mrr,_map):
 
 ### Accuracy QAS TOP-RANKED
 
-# def accuracy_qas_top(one_prob, labels, weights):
-#   """
-#   Estimate accuracy of predictions for Question Answering Selection
-#   If top-ranked sentence predicted as 1 is on the gold-sentences set (the answer set of sentences),
-#   then sample is correctly classified
-#   Args:
-#     probs: Probabilities. [FLAGS.batch_size, FLAGS.max_doc_length, FLAGS.target_label_size]
-#     labels: Sentence extraction gold levels [FLAGS.batch_size, FLAGS.max_doc_length, FLAGS.target_label_size]
-#     weights: Weights to avoid padded part [FLAGS.batch_size, FLAGS.max_doc_length]
-#     scores: ISF score indexes sorted in reverse order [FLAGS.batch_size, FLAGS.topK]
-#   Returns:
-#     Accuracy: Estimates average of accuracy for each sentence
-#   """
-#   bs,ld = labels.shape
-
-#   if FLAGS.weighted_loss:
-#     one_prob = one_prob * weights # only need to mask one of two mats
-
-#   mask = labels.sum(axis=1) > 0
-#   correct = 0.0
-#   total = 0.0
-#   for i in range(bs):
-#     if mask[i]==0 or mask[i]==sum(weights[i,:]):
-#       continue
-#     correct += labels[i,one_prob[i,:].argmax()] 
-#     total += 1.0
-#   accuracy = correct / total
-
-#   return accuracy
 
 def accuracy_qas_top(one_prob, labels, weights):
   """
@@ -149,30 +120,30 @@ def accuracy_qas_top(one_prob, labels, weights):
   return accuracy
 
 
-# def mrr_metric(one_prob,labels,weights,data_type):
-#   '''
-#   Calculates Mean reciprocal rank: mean(1/pos),
-#     pos : how many sentences are ranked higher than the answer-sentence with highst prob (given by model)
-#   Args:
-#     probs: Probabilities. [FLAGS.batch_size, FLAGS.max_doc_length, FLAGS.target_label_size]
-#     labels: Sentence extraction gold levels [FLAGS.batch_size, FLAGS.max_doc_length, FLAGS.target_label_size]
-#     weights: Weights to avoid padded part [FLAGS.batch_size, FLAGS.max_doc_length]
-#   Returns:
-#     MRR: estimates MRR at document level
-#   '''
+def mrr_metric_trec(one_prob,labels,weights,data_type):
+  '''
+  Calculates Mean reciprocal rank: mean(1/pos),
+    pos : how many sentences are ranked higher than the answer-sentence with highst prob (given by model)
+  Args:
+    probs: Probabilities. [FLAGS.batch_size, FLAGS.max_doc_length, FLAGS.target_label_size]
+    labels: Sentence extraction gold levels [FLAGS.batch_size, FLAGS.max_doc_length, FLAGS.target_label_size]
+    weights: Weights to avoid padded part [FLAGS.batch_size, FLAGS.max_doc_length]
+  Returns:
+    MRR: estimates MRR at document level
+  '''
 
-#   bs,ld = one_prob.shape
+  bs,ld = one_prob.shape
 
-#   dump_trec_format(labels,one_prob,weights)
-#   popen = sp.Popen(["../trec_eval/trec_eval",
-#     "-m", "recip_rank",
-#     os.path.join(FLAGS.preprocessed_data_directory,FLAGS.data_mode,data_type+".rel_info"),
-#     os.path.join(FLAGS.train_dir,"temp.trec_res")],
-#     stdout=sp.PIPE)
-#   with popen.stdout as f:
-#     metric = f.read().strip("\n")[-6:]
-#     mrr = float(metric)
-#   return mrr
+  dump_trec_format(labels,one_prob,weights)
+  popen = sp.Popen(["../trec_eval/trec_eval",
+    "-m", "recip_rank",
+    os.path.join(FLAGS.preprocessed_data_directory,FLAGS.data_mode,data_type+".rel_info"),
+    os.path.join(FLAGS.train_dir,"temp.trec_res")],
+    stdout=sp.PIPE)
+  with popen.stdout as f:
+    metric = f.read().strip("\n")[-6:]
+    mrr = float(metric)
+  return mrr
 
 
 def mrr_metric(one_prob,labels,weights,data_type):
@@ -221,32 +192,32 @@ def mrr_metric(one_prob,labels,weights,data_type):
   return mrr
 
 
-# def map_score(one_prob,labels,weights,data_type):
-#   '''
-#   Calculates Mean Average Precision MAP
-#   Args:
-#     probs: Probabilities. [FLAGS.batch_size, FLAGS.max_doc_length, FLAGS.target_label_size]
-#     labels: Sentence extraction gold levels [FLAGS.batch_size, FLAGS.max_doc_length, FLAGS.target_label_size]
-#     weights: Weights to avoid padded part [FLAGS.batch_size, FLAGS.max_doc_length]
-#   Returns:
-#     MAP: estimates MAP over all batch
-#   '''
-#   bs,ld = one_prob.shape
+def map_score_trec(one_prob,labels,weights,data_type):
+  '''
+  Calculates Mean Average Precision MAP
+  Args:
+    probs: Probabilities. [FLAGS.batch_size, FLAGS.max_doc_length, FLAGS.target_label_size]
+    labels: Sentence extraction gold levels [FLAGS.batch_size, FLAGS.max_doc_length, FLAGS.target_label_size]
+    weights: Weights to avoid padded part [FLAGS.batch_size, FLAGS.max_doc_length]
+  Returns:
+    MAP: estimates MAP over all batch
+  '''
+  bs,ld = one_prob.shape
 
-#   if FLAGS.weighted_loss:
-#     one_prob = one_prob * weights # only need to mask one of two mats
-#     labels = labels * weights
+  if FLAGS.weighted_loss:
+    one_prob = one_prob * weights # only need to mask one of two mats
+    labels = labels * weights
 
-#   dump_trec_format(labels,one_prob,weights)
-#   popen = sp.Popen(["../trec_eval/trec_eval",
-#     "-m", "map",
-#     os.path.join(FLAGS.preprocessed_data_directory,FLAGS.data_mode,data_type+".rel_info"),
-#     os.path.join(FLAGS.train_dir,"temp.trec_res")],
-#     stdout=sp.PIPE)
-#   with popen.stdout as f:
-#     metric = f.read().strip("\n")[-6:]
-#     map_sc = float(metric)
-#   return map_sc
+  dump_trec_format(labels,one_prob,weights)
+  popen = sp.Popen(["../trec_eval/trec_eval",
+    "-m", "map",
+    os.path.join(FLAGS.preprocessed_data_directory,FLAGS.data_mode,data_type+".rel_info"),
+    os.path.join(FLAGS.train_dir,"temp.trec_res")],
+    stdout=sp.PIPE)
+  with popen.stdout as f:
+    metric = f.read().strip("\n")[-6:]
+    map_sc = float(metric)
+  return map_sc
 
 
 def map_score(one_prob,labels,weights,data_type):
