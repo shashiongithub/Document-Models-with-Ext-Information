@@ -6,7 +6,7 @@
 ####################################
 
 import os, sys
-from utils import PREPROC_DATA_DIR
+from utils import PREPROC_DATA_DIR, trail_id
 
 pref = os.path.join(PREPROC_DATA_DIR,"newsqa")
 for csp in ["training","validation","test"]:
@@ -36,12 +36,12 @@ for csp in ["training","validation","test"]:
     idfs = [float(x) for x in idf_lines[qid].split("\n")[1:]]
     locisfs = [float(x) for x in locisf_lines[qid].split("\n")[1:]]
     for i,lab in enumerate(labels):
-      label_out.write("%d 0 %d %d\n" % (qid+1,i,lab) )
-      cnt_out.write("%d\t0\t%d\t0\t%.1f NEWSQA\n" % (qid+1,i,cnts[i]))
-      #wgt_out.write("%d\t0\t%d\t0\t%.6f NEWSQA\n" % (qid+1,i,wgts[i]))
-      isf_out.write("%d\t0\t%d\t0\t%.6f NEWSQA\n" % (qid+1,i,isfs[i]))
-      idf_out.write("%d\t0\t%d\t0\t%.6f NEWSQA\n" % (qid+1,i,idfs[i]))
-      locisf_out.write("%d\t0\t%d\t0\t%.6f NEWSQA\n" % (qid+1,i,locisfs[i]))
+      label_out.write("%s 0 %s %d\n" % ( trail_id(qid+1),trail_id(i),lab) )
+      cnt_out.write("%s\t0\t%s\t0\t%.1f NEWSQA\n" % ( trail_id(qid+1),trail_id(i),cnts[i]))
+      # wgt_out.write("%s\t0\t%s\t0\t%.6f NEWSQA\n" % ( trail_id(qid+1),trail_id(i),wgts[i]))
+      isf_out.write("%s\t0\t%s\t0\t%.6f NEWSQA\n" % ( trail_id(qid+1),trail_id(i),isfs[i]))
+      idf_out.write("%s\t0\t%s\t0\t%.6f NEWSQA\n" % ( trail_id(qid+1),trail_id(i),idfs[i]))
+      locisf_out.write("%s\t0\t%s\t0\t%.6f NEWSQA\n" % ( trail_id(qid+1),trail_id(i),locisfs[i]))
     ##
   ##
   label_out.close()
@@ -70,12 +70,12 @@ for csp in ["training","validation","test"]:
     idfs    = [float(x) for x in idf_lines   [idx].split("\n")[1:]]
     locisfs = [float(x) for x in locisf_lines[idx].split("\n")[1:]]
     for i,lab in enumerate(labels):
-      label_out.write("%d 0 %d %d\n" % (qid+1,i,lab) )
-      cnt_out.write("%d\t0\t%d\t0\t%.1f NEWSQA\n" % (qid+1,i,cnts[i]))
-      #wgt_out.write("%d\t0\t%d\t0\t%.6f NEWSQA\n" % (qid+1,i,wgts[i]))
-      isf_out.write("%d\t0\t%d\t0\t%.6f NEWSQA\n" % (qid+1,i,isfs[i]))
-      idf_out.write("%d\t0\t%d\t0\t%.6f NEWSQA\n" % (qid+1,i,idfs[i]))
-      locisf_out.write("%d\t0\t%d\t0\t%.6f NEWSQA\n" % (qid+1,i,locisfs[i]))
+      label_out.write("%s 0 %s %d\n" % ( trail_id(qid+1),trail_id(i),lab) )
+      cnt_out.write("%s\t0\t%s\t0\t%.1f NEWSQA\n" % ( trail_id(qid+1),trail_id(i),cnts[i]))
+      # wgt_out.write("%s\t0\t%s\t0\t%.6f NEWSQA\n" % ( trail_id(qid+1),trail_id(i),wgts[i]))
+      isf_out.write("%s\t0\t%s\t0\t%.6f NEWSQA\n" % ( trail_id(qid+1),trail_id(i),isfs[i]))
+      idf_out.write("%s\t0\t%s\t0\t%.6f NEWSQA\n" % ( trail_id(qid+1),trail_id(i),idfs[i]))
+      locisf_out.write("%s\t0\t%s\t0\t%.6f NEWSQA\n" % ( trail_id(qid+1),trail_id(i),locisfs[i]))
     ##
   ##
   label_out.close()

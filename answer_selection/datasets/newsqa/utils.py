@@ -249,4 +249,9 @@ def eval_cnts(question,sents,isf_dict,idf_dict,stopwords):
     return cnt_scores,isf_scores,idf_scores,local_isf_scores
 
 
-#############################################################################################3
+####################################################################################
+
+def trail_id(_id):
+  sid = str(_id)
+  sid = "0"*(7 - len(sid)) + sid
+  return sid

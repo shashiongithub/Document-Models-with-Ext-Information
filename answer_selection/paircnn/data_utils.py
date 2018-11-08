@@ -252,7 +252,7 @@ class Data:
                     thissent = thissent[:FLAGS.max_sent_length]
                     self.docs.append(thissent)
                     # labels
-                    thissent_label = int(label_lines[idx+1].strip())
+                    thissent_label = int(float(label_lines[idx+1].strip()))
                     self.labels.append(thissent_label)
                     self.qids.append(qid_count)
                 qid_count += 1

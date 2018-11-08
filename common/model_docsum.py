@@ -368,7 +368,7 @@ def policy_network_paircnn_qa(vocab_embed_variable, document_placeholder):
     Outputs of sentence extractor and logits without softmax
     """
 
-    with tf.variable_scope('CNN_baseline') as scope:
+    with tf.variable_scope('PolicyNetwork') as scope:
 
         ### Full Word embedding Lookup Variable
         # PADDING embedding non-trainable
