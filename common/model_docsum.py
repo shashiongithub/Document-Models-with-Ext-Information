@@ -616,15 +616,21 @@ def accuracy_qas_top(probs, labels, weights, scores):
   correct = 0.0
   total = 0.0
   for i in range(bs):
-    if mask[i]==0 or mask[i]==sum(weights[i,:]):
+    if mask[i]==0:
       continue
-    correct += labels[i,one_prob[i,:].argmax()] 
+    if FLAGS.tie_break=="first":
+      correct += labels[i,one_prob[i,:].argmax()]
+    else:
+      srt_ref = [(x,pos) for pos,x in enumerate(one_prob[i,:])]
+      srt_ref.sort(reverse=True)
+      correct += labels[i,srt_ref[0][1]]
     total += 1.0
   accuracy = correct / total
   return accuracy
 
 
-def mrr_metric(probs,labels,weights,scores,data_type=''):
+
+def mrr_metric(probs,labels,weights,scores,data_type):
   '''
   Calculates Mean reciprocal rank: mean(1/pos),
     pos : how many sentences are ranked higher than the answer-sentence with highst prob (given by model)
@@ -635,6 +641,7 @@ def mrr_metric(probs,labels,weights,scores,data_type=''):
   Returns:
     MRR: estimates MRR at document level
   '''
+
   one_prob = probs[:,:,0] # slice prob of being 1 | [batch_size, max_doc_len]
   labels = labels[:,:,0] #[batch_size, max_doc_len]
   bs,ld = one_prob.shape
@@ -650,20 +657,36 @@ def mrr_metric(probs,labels,weights,scores,data_type=''):
   if FLAGS.weighted_loss:
     one_prob = one_prob * weights # only need to mask one of two mats
     labels = labels * weights
-  sufx = "_subsampled" if FLAGS.use_subsampled_dataset and data_type=="training" else ""
-  dump_trec_format(labels,one_prob,weights)
-  popen = sp.Popen(["../trec_eval/trec_eval",
-    "-m", "recip_rank",
-    os.path.join(FLAGS.preprocessed_data_directory,FLAGS.data_mode,data_type+".rel_info"+sufx),
-    os.path.join(FLAGS.train_dir,"temp.trec_res")],
-    stdout=sp.PIPE)
-  with popen.stdout as f:
-    metric = f.read().decode('ascii').strip("\n")[-6:]
-    mrr = float(metric)
+  mask = labels.sum(axis=1) > 0
+  mrr = 0.0
+  total = 0.0
+  for i in range(bs):
+    if mask[i]==0:
+      continue
+    srt_ref = []
+    # tie breaking: earliest in list
+    if FLAGS.tie_break=="first":
+        srt_ref = [(-x,j) for j,x in enumerate(one_prob[i,:])]
+        srt_ref.sort()
+    # tie breaking: last in list
+    else:
+        srt_ref = [(x,j) for j,x in enumerate(one_prob[i,:])]
+        srt_ref.sort(reverse=True)
+
+    rel_rank = 0.0
+    for idx_retr,(x,j) in enumerate(srt_ref):
+        if labels[i,j]==1:
+            rel_rank = 1.0 + idx_retr
+            break
+
+    mrr += 1.0/rel_rank # accumulate inverse rank
+    total += 1.0
+  mrr /= total
   return mrr
 
 
-def map_score(probs,labels,weights,scores,data_type=''):
+
+def map_score(probs,labels,weights,scores,data_type):
   '''
   Calculates Mean Average Precision MAP
   Args:
@@ -687,18 +710,34 @@ def map_score(probs,labels,weights,scores,data_type=''):
     one_prob = one_prob * topk_mask
   if FLAGS.weighted_loss:
     one_prob = one_prob * weights # only need to mask one of two mats
-    labels = labels * weights
-  sufx = "_subsampled" if FLAGS.use_subsampled_dataset and data_type=="training" else ""
-  dump_trec_format(labels,one_prob,weights)
-  popen = sp.Popen(["../trec_eval/trec_eval",
-    "-m", "map",
-    os.path.join(FLAGS.preprocessed_data_directory,FLAGS.data_mode,data_type+".rel_info"+sufx),
-    os.path.join(FLAGS.train_dir,"temp.trec_res")],
-    stdout=sp.PIPE)
-  with popen.stdout as f:
-    metric = f.read().decode('ascii').strip("\n")[-6:]
-    map_sc = float(metric)
-  return map_sc
+  mask = labels.sum(axis=1) > 0
+  _map = 0.0
+  total = 0.0
+  for i in range(bs):
+    if mask[i]==0:
+      continue
+    srt_ref = []
+    # tie breaking: earliest in list
+    if FLAGS.tie_break=="first":
+        srt_ref = [(-x,j) for j,x in enumerate(one_prob[i,:])]
+        srt_ref.sort()
+    # tie breaking: last in list
+    else:
+        srt_ref = [(x,j) for j,x in enumerate(one_prob[i,:])]
+        srt_ref.sort(reverse=True)
+    aps = 0.0
+    n_corr = 0.0
+    for idx_retr,(x,j) in enumerate(srt_ref):
+        if labels[i,j]==1:
+            n_corr += 1.0
+            aps += (n_corr / (idx_retr+1))
+            # break
+    aps /= labels[i,:].sum()
+    _map += aps
+    total += 1.0
+  _map /= total
+  return _map
+
 
 
 ###############################################################

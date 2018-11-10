@@ -4,7 +4,7 @@ mkdir -p train_dir_newsqa
 
 CUDA_VISIBLE_DEVICES=0 python runner.py --gpu_id 0 \
 --train_dir train_dir_newsqa --data_mode newsqa \
---exp_mode train \
+--exp_mode train_simple \
 --tie_break first \
 --max_sent_length 50 --max_doc_length 64 \
 --max_filter_length 8 --min_filter_length 5 \
